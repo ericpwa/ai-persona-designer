@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+Production bug fix.
+
+- Changed the default Gemini model to `gemini-2.5-flash`.
+- Removed newer preview-style model IDs from the default model selector to reduce API-key compatibility failures.
+- Added automatic Gemini fallback attempts across Flash models.
+- Added clearer API failure messages for invalid keys, unavailable models, network failures, and empty responses.
+
 ## 0.1.0
 
 Initial public-ready version.

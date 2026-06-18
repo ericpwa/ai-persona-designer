@@ -159,15 +159,25 @@ Latest validation status:
 
 ## Current GitHub Publishing State
 
-At the time this log was written:
+At the time the initial release log was written:
 
 - The local folder is a Git repository.
 - The branch is `main`.
-- There is no configured remote.
-- GitHub CLI `gh` is not installed in the local environment.
-- The available GitHub connector can work with existing installed repositories, but no installed repo matching "Persona Designer" was found.
+- The GitHub remote is `https://github.com/ericpwa/ai-persona-designer.git`.
+- The app is deployed on Streamlit Community Cloud at `https://ai-persona-designer-cujn4tstvmmopfwtjgcxjz.streamlit.app/`.
 
-To publish to GitHub, create a GitHub repository and add it as `origin`, or install/login to GitHub CLI and continue the publish flow.
+## Production Fix: Gemini Model Compatibility
+
+After public deployment, external users reported that they could open the app, enter an API key, select menus, and fill cards, but clicking "生成人物誌" did not work or showed an error.
+
+Likely root cause: the app originally exposed newer Gemini model IDs first. Some user API keys may not have access to those models, causing generation to fail.
+
+Fix applied:
+
+- Default model changed to `gemini-2.5-flash`.
+- Model selector now uses a more compatibility-oriented set: `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, `gemini-2.5-pro`, `gemini-1.5-pro`.
+- `call_gemini()` now automatically tries fallback Flash models.
+- Network/API failures are caught and shown as clear user-facing errors.
 
 ## Recommended Next Enhancements
 

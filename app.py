@@ -8,6 +8,19 @@ import streamlit as st
 APP_TITLE = "Persona Designer"
 APP_SUBTITLE = "人物誌設計師"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL_OPTIONS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.5-pro",
+    "gemini-1.5-pro",
+]
+GEMINI_FALLBACK_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
 
 
 PERSONA_FORMAT = """
@@ -285,9 +298,8 @@ def init_state():
             st.session_state[key] = value
 
 
-def call_gemini(api_key, model, system_prompt, user_prompt, temperature):
-    url = GEMINI_API_URL.format(model=model)
-    payload = {
+def build_gemini_payload(system_prompt, user_prompt, temperature):
+    return {
         "systemInstruction": {
             "parts": [{"text": system_prompt}],
         },
@@ -303,30 +315,63 @@ def call_gemini(api_key, model, system_prompt, user_prompt, temperature):
             "maxOutputTokens": 8192,
         },
     }
-    response = requests.post(
-        url,
-        params={"key": api_key},
-        headers={"Content-Type": "application/json"},
-        data=json.dumps(payload),
-        timeout=90,
-    )
+
+
+def parse_gemini_response(response, model):
     if response.status_code != 200:
         try:
             detail = response.json().get("error", {}).get("message", response.text)
         except json.JSONDecodeError:
             detail = response.text
-        raise RuntimeError(f"Gemini API 回應失敗：{response.status_code} - {detail}")
+        raise RuntimeError(f"{model}：HTTP {response.status_code} - {detail}")
 
     data = response.json()
     candidates = data.get("candidates", [])
     if not candidates:
-        raise RuntimeError("Gemini API 沒有回傳候選內容，請調整輸入或稍後再試。")
+        raise RuntimeError(f"{model}：Gemini API 沒有回傳候選內容。")
 
     parts = candidates[0].get("content", {}).get("parts", [])
     text = "\n".join(part.get("text", "") for part in parts).strip()
     if not text:
-        raise RuntimeError("Gemini API 回傳空白內容，請調整輸入或稍後再試。")
+        finish_reason = candidates[0].get("finishReason", "unknown")
+        raise RuntimeError(f"{model}：Gemini API 回傳空白內容，finishReason={finish_reason}。")
     return text
+
+
+def call_gemini_once(api_key, model, system_prompt, user_prompt, temperature):
+    url = GEMINI_API_URL.format(model=model)
+    try:
+        response = requests.post(
+            url,
+            params={"key": api_key},
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(build_gemini_payload(system_prompt, user_prompt, temperature)),
+            timeout=90,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(f"{model}：無法連線到 Gemini API - {exc}") from exc
+    return parse_gemini_response(response, model)
+
+
+def call_gemini(api_key, model, system_prompt, user_prompt, temperature):
+    models_to_try = []
+    for candidate in [model, *GEMINI_FALLBACK_MODELS]:
+        if candidate and candidate not in models_to_try:
+            models_to_try.append(candidate)
+
+    errors = []
+    for candidate in models_to_try:
+        try:
+            return call_gemini_once(api_key, candidate, system_prompt, user_prompt, temperature)
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    detail = "\n".join(f"- {error}" for error in errors)
+    raise RuntimeError(
+        "AI 生成失敗。請先確認 Google API Key 有啟用 Gemini API，且可使用 Gemini Flash 模型。\n\n"
+        "本次已自動嘗試多個 Gemini 模型但仍失敗：\n"
+        f"{detail}"
+    )
 
 
 def build_system_prompt(persona_count):
@@ -454,8 +499,9 @@ def render_sidebar():
         api_key = st.text_input("Google API Key", type="password", placeholder="AIza...")
         model = st.selectbox(
             "Gemini 模型",
-            ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"],
-            help="想省成本與速度優先可用 Flash/Lite；需要更細膩可改 Pro。若你的 Key 尚未開通新模型，可改用 2.5 系列。",
+            GEMINI_MODEL_OPTIONS,
+            index=GEMINI_MODEL_OPTIONS.index(DEFAULT_GEMINI_MODEL),
+            help="建議先用 2.5 Flash。若使用者的 API Key 不支援所選模型，系統會自動嘗試其他 Flash fallback。",
         )
         temperature = st.slider("創意程度", 0.1, 1.0, 0.55, 0.05)
         st.divider()
